@@ -1,7 +1,0 @@
----
-- name: restart cadvisor
-  community.docker.docker_container:
-    name: cadvisor
-    state: started
-    restart: true
-  listen: "restart cadvisor"
