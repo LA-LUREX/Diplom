@@ -1,8 +1,3 @@
-#!/usr/bin/env python3
-"""
-ML Data Loader for PostgreSQL Cluster (с генерацией синтетических данных)
-"""
-
 import pandas as pd
 import json
 import argparse
@@ -146,7 +141,7 @@ def generate_synthetic_records(analysis, count, existing_records):
     # Используем существующие записи как шаблоны для вариативности
     template_records = existing_records[-100:] if len(existing_records) >= 10 else existing_records
     
-    print(f"🎲 Генерация {count} синтетических записей на основе {len(existing_records)} реальных...")
+    print(f" Генерация {count} синтетических записей на основе {len(existing_records)} реальных...")
     
     for i in range(count):
         # Выбираем случайную запись как шаблон (если есть)
@@ -628,4 +623,5 @@ def main():
     print("="*60)
 
 if __name__ == '__main__':
+
     main()
