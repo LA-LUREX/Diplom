@@ -1,0 +1,6 @@
+- name: Install Opensearch nodes for cluster (3 nodes)
+  hosts: opensearch_nodes
+  roles:
+    - opensearch_node
+    - exporter
+  tags: openseacrh
