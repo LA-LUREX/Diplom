@@ -1,0 +1,26 @@
+services:
+  opensearch:
+    build: .
+    image: opensearch-exporter-node:latest
+    container_name: {{ inventory_hostname }}
+    environment:
+      - OPENSEARCH_JAVA_OPTS=-Xms1g -Xmx1g
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - ./config/opensearch.yml:/usr/share/opensearch/config/opensearch.yml:ro
+      - ./data:/usr/share/opensearch/data
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    networks:
+      - os-net
+
+networks:
+  os-net:
+    driver: bridge

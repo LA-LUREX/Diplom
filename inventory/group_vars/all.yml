@@ -1,0 +1,27 @@
+ansible_python_interpreter: /usr/bin/python3
+ansible_become: true
+
+# PostgreSQL settings
+postgres_user: dbadmin
+postgres_password: mnxa2003
+postgres_db: postgres
+postgres_port: 5432
+
+# Replication settings
+replication_user: repluser
+replication_password: repl_pass
+
+# Master settings
+wal_level: replica
+max_wal_senders: 5
+max_replication_slots: 5
+
+# Сетевой префикс, откуда разрешена репликация
+replication_net: "10.0.2.0/24"
+
+# Укажи, какой хост является синхронной репликой (inventory_hostname)
+sync_replica_name: "pg_node2"
+# Определяем home директории на хосте
+pg_master_data: /opt/pg_master_data
+pg_master_config: /opt/pg_master_config
+pg_replica_data: /opt/pg_replica_data

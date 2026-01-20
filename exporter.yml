@@ -1,0 +1,5 @@
+- name: Install exporters on all postgres hosts
+  hosts: postgres_master:postgres_replicas
+  become: true
+  roles:
+    - role: exporter_pg

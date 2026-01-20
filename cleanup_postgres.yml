@@ -1,0 +1,61 @@
+---
+- name: Emergency cleanup - stop all PostgreSQL containers and remove data
+  hosts: postgres_master:postgres_replicas
+  become: true
+  
+  tasks:
+    - name: Gather list of running containers before cleanup
+      community.docker.docker_host_info:
+        containers: yes
+      register: docker_info_before
+
+    - name: Display containers before cleanup
+      debug:
+        msg: "Найдены контейнеры: {{ docker_info_before.containers | map(attribute='Names') | flatten }}"
+
+    # Шаг 1: Остановка и удаление контейнеров PostgreSQL
+    - name: Stop and remove PostgreSQL master container
+      community.docker.docker_container:
+        name: pg_master
+        state: absent
+        force_kill: true
+      when: inventory_hostname in groups['postgres_master']
+      ignore_errors: true
+
+    - name: Stop and remove PostgreSQL replica container
+      community.docker.docker_container:
+        name: "pg_replica_{{ inventory_hostname }}"
+        state: absent
+        force_kill: true
+      when: inventory_hostname in groups['postgres_replicas']
+      ignore_errors: true
+
+    # Шаг 3: Удаление директорий с данными
+    - name: Remove PostgreSQL master directories
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /opt/pg_master_data
+        - /opt/pg_master_config
+      when: inventory_hostname in groups['postgres_master']
+
+    - name: Remove PostgreSQL replica data directory
+      file:
+        path: /opt/pg_replica_data
+        state: absent
+      when: inventory_hostname in groups['postgres_replicas']
+
+    # Шаг 5: Проверка очистки
+    - name: Verify directories are removed
+      stat:
+        path: "{{ item.path }}"
+      register: dir_stat
+      loop:
+        - { path: "/opt/pg_master_data", type: "master" }
+        - { path: "/opt/pg_master_config", type: "master" }
+        - { path: "/opt/pg_replica_data", type: "replica" }
+      when: 
+        - (inventory_hostname in groups['postgres_master'] and item.type == 'master') or
+          (inventory_hostname in groups['postgres_replicas'] and item.type == 'replica') or
+          (item.type == 'all')

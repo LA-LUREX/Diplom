@@ -1,0 +1,27 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: 'opensearch'
+    metrics_path: '/_prometheus/metrics'
+    static_configs:
+      - targets:
+{% for host in groups['opensearch_nodes'] %}
+        - "{{ hostvars[host].ansible_host }}:9200"
+{% endfor %}
+
+  - job_name: 'postgres'
+    static_configs:
+      - targets:
+{% for host in groups['postgres_master'] + groups['postgres_replicas'] %}
+        - "{{ hostvars[host].ansible_host }}:9187"
+{% endfor %}
+
+  - job_name: 'cadvisor'
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+{% for host in groups['opensearch_nodes'] + groups['postgres_master'] + groups['postgres_replicas'] + groups['monitor_node'] %}
+        - "{{ hostvars[host].ansible_host }}:9080"
+{% endfor %}

@@ -1,0 +1,40 @@
+---
+- name: Emergency cleanup - stop all PostgreSQL containers and remove data
+  hosts: postgres_master:postgres_replicas
+  become: true
+  
+  tasks:
+    - name: Gather list of running containers before cleanup
+      community.docker.docker_host_info:
+        containers: yes
+      register: docker_info_before
+
+    - name: Display containers before cleanup
+      debug:
+        msg: "Найдены контейнеры: {{ docker_info_before.containers | map(attribute='Names') | flatten }}"
+
+    # Шаг 2: Остановка и удаление экспортеров
+    - name: Stop and remove PostgreSQL exporter container
+      community.docker.docker_container:
+        name: "postgres_exporter_{{ inventory_hostname }}"
+        state: absent
+        force_kill: true
+      ignore_errors: true
+
+    # Шаг 4: Удаление директорий экспортеров
+    - name: Remove PostgreSQL exporter directory
+      file:
+        path: /opt/postgres_exporter
+        state: absent
+
+    # Шаг 5: Проверка очистки
+    - name: Verify directories are removed
+      stat:
+        path: "{{ item.path }}"
+      register: dir_stat
+      loop:
+        - { path: "/opt/postgres_exporter", type: "all" }
+      when: 
+        - (inventory_hostname in groups['postgres_master'] and item.type == 'master') or
+          (inventory_hostname in groups['postgres_replicas'] and item.type == 'replica') or
+          (item.type == 'all')

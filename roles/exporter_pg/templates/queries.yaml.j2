@@ -1,0 +1,75 @@
+# ВАЖНО: Эти метрики генерируются АВТОМАТИЧЕСКИ при PG_EXPORTER_STATEMENTS=true
+# НЕ нужно определять pg_stat_statements вручную!
+
+# Throughput метрики
+pg_stat_database_throughput:
+  query: |
+    SELECT 
+      datname,
+      xact_commit,
+      xact_rollback,
+      tup_returned,
+      tup_fetched,
+      tup_inserted,
+      tup_updated,
+      tup_deleted
+    FROM pg_stat_database 
+    WHERE datname = '{{ postgres_db }}'
+  metrics:
+    - datname:
+        usage: "LABEL"
+    - xact_commit:
+        usage: "COUNTER"
+    - xact_rollback:
+        usage: "COUNTER"
+    - tup_returned:
+        usage: "COUNTER"
+    - tup_fetched:
+        usage: "COUNTER"
+    - tup_inserted:
+        usage: "COUNTER"
+    - tup_updated:
+        usage: "COUNTER"
+    - tup_deleted:
+        usage: "COUNTER"
+
+# Replication метрики
+pg_replication:
+  query: |
+    SELECT 
+      application_name, 
+      client_addr,
+      state,
+      sync_state,
+      EXTRACT(EPOCH FROM (now() - pg_last_xact_replay_timestamp())) as lag_seconds,
+      pg_wal_lsn_diff(pg_current_wal_lsn(), replay_lsn) as lag_bytes
+    FROM pg_stat_replication
+  metrics:
+    - application_name:
+        usage: "LABEL"
+    - client_addr:
+        usage: "LABEL"
+    - state:
+        usage: "LABEL"
+    - sync_state:
+        usage: "LABEL"
+    - lag_seconds:
+        usage: "GAUGE"
+    - lag_bytes:
+        usage: "GAUGE"
+
+# Размер БД
+pg_database_size:
+  query: "SELECT datname, pg_database_size(datname) as size_bytes FROM pg_database WHERE datname = '{{ postgres_db }}'"
+  metrics:
+    - datname:
+        usage: "LABEL"
+    - size_bytes:
+        usage: "GAUGE"
+
+# Статус реплики
+pg_is_in_recovery:
+  query: "SELECT CASE WHEN pg_is_in_recovery() THEN 1 ELSE 0 END as is_recovery"
+  metrics:
+    - is_recovery:
+        usage: "GAUGE"

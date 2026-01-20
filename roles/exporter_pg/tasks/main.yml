@@ -1,0 +1,143 @@
+---
+- name: Stop and remove old PostgreSQL exporter container
+  community.docker.docker_container:
+    name: "postgres_exporter_{{ inventory_hostname }}"
+    state: absent
+    force_kill: true
+  ignore_errors: true
+
+- name: Create exporter directories
+  file:
+    path: /opt/postgres_exporter
+    state: directory
+    mode: '0755'
+
+- name: Copy FAIL-SAFE queries.yaml
+  copy:
+    content: |
+      # Минимальные метрики, которые 100% работают
+      pg_is_in_recovery:
+        query: "SELECT CASE WHEN pg_is_in_recovery() THEN 1 ELSE 0 END as is_recovery"
+        metrics:
+          - is_recovery:
+              usage: "GAUGE"
+
+      # Throughput (защищён от NULL)
+      pg_stat_database_throughput:
+        query: |
+          SELECT 
+            'postgres' as datname,
+            COALESCE(sum(xact_commit), 0) as xact_commit,
+            COALESCE(sum(xact_rollback), 0) as xact_rollback,
+            COALESCE(sum(tup_returned), 0) as tup_returned,
+            COALESCE(sum(tup_fetched), 0) as tup_fetched,
+            COALESCE(sum(tup_inserted), 0) as tup_inserted,
+            COALESCE(sum(tup_updated), 0) as tup_updated,
+            COALESCE(sum(tup_deleted), 0) as tup_deleted
+          FROM pg_stat_database 
+          WHERE datname = '{{ postgres_db }}'
+        metrics:
+          - datname:
+              usage: "LABEL"
+          - xact_commit:
+              usage: "COUNTER"
+          - xact_rollback:
+              usage: "COUNTER"
+          - tup_returned:
+              usage: "COUNTER"
+          - tup_fetched:
+              usage: "COUNTER"
+          - tup_inserted:
+              usage: "COUNTER"
+          - tup_updated:
+              usage: "COUNTER"
+          - tup_deleted:
+              usage: "COUNTER"
+      
+      pg_query_percentiles:
+        query: |
+          SELECT 
+            'app' as app,
+            percentile_cont(0.50) WITHIN GROUP (ORDER BY mean_exec_time) as p50_ms,
+            percentile_cont(0.95) WITHIN GROUP (ORDER BY mean_exec_time) as p95_ms,
+            percentile_cont(0.99) WITHIN GROUP (ORDER BY mean_exec_time) as p99_ms
+          FROM pg_stat_statements
+          WHERE calls > 100;  -- Фильтруем редкие запросы
+        metrics:
+          - app:
+              usage: "LABEL"
+          - p50_ms:
+              usage: "GAUGE"
+          - p95_ms:
+              usage: "GAUGE"
+          - p99_ms:
+              usage: "GAUGE"
+
+      # Размер БД
+      pg_database_size:
+        query: |
+          SELECT datname, pg_database_size(datname) as size_bytes
+          FROM pg_database
+          WHERE datname = '{{ postgres_db }}'
+        metrics:
+          - datname:
+              usage: "LABEL"
+          - size_bytes:
+              usage: "GAUGE"
+
+      # pg_stat_statements (только если расширение существует)
+      pg_stat_statements_latency:
+        query: |
+          SELECT 
+            COALESCE(queryid::text, '0') as queryid,
+            COALESCE(LEFT(query, 50), 'none') as query_short,
+            COALESCE(calls, 0) as calls,
+            COALESCE(total_exec_time, 0) / 1000.0 as total_seconds,
+            COALESCE(mean_exec_time, 0) / 1000.0 as mean_seconds,
+            COALESCE(max_exec_time, 0) / 1000.0 as max_seconds
+          FROM pg_stat_statements
+          WHERE calls > 0 
+            AND query NOT LIKE '%pg_stat_statements%'
+          LIMIT 100
+        metrics:
+          - queryid:
+              usage: "LABEL"
+          - query_short:
+              usage: "LABEL"
+          - calls:
+              usage: "COUNTER"
+          - total_seconds:
+              usage: "COUNTER"
+          - mean_seconds:
+              usage: "GAUGE"
+          - max_seconds:
+              usage: "GAUGE"
+    dest: /opt/postgres_exporter/queries.yaml
+    mode: '0644'
+  notify: restart postgres_exporter
+
+- name: Grant monitoring privileges to postgres user
+  community.docker.docker_container_exec:
+    container: "{{ postgres_container_name }}"
+    command: >
+      psql -U "{{ postgres_user }}" -d "{{ postgres_db }}" -c
+      "GRANT pg_monitor TO {{ postgres_user }};"
+  when: inventory_hostname in groups['postgres_master']
+  changed_when: false
+
+- name: Run PostgreSQL exporter (pinned stable version)
+  community.docker.docker_container:
+    name: "postgres_exporter_{{ inventory_hostname }}"
+    image: prometheuscommunity/postgres-exporter:v0.18.0
+    env:
+      DATA_SOURCE_NAME: "postgresql://{{ postgres_user }}:{{ postgres_password }}@{{ ansible_host }}:5432/{{ postgres_db }}?sslmode=disable"
+      PG_EXPORTER_EXTEND_QUERY_PATH: "/queries.yaml"
+      PG_EXPORTER_AUTO_DISCOVER_DATABASES: "false"
+      PG_EXPORTER_INCLUDE_DATABASES: "{{ postgres_db }}"
+      PG_EXPORTER_STATEMENTS: "true"
+    volumes:
+      - /opt/postgres_exporter/queries.yaml:/queries.yaml:ro
+    ports:
+      - "9187:9187"
+    restart_policy: unless-stopped
+    state: started

@@ -1,0 +1,26 @@
+cluster.name: "os-cluster"
+node.name: "{{ inventory_hostname }}"
+node.roles: ["cluster_manager","data","ingest"]
+network.host: 0.0.0.0
+network.publish_host: {{ ansible_host }}
+transport.port: 9300
+http.port: 9200
+
+discovery.seed_hosts:
+{% for host in groups['opensearch_nodes'] %}
+  - "{{ hostvars[host].ansible_host }}"
+{% endfor %}
+
+cluster.initial_cluster_manager_nodes:
+{% for h in groups['opensearch_nodes'] %}
+  - "{{ h }}"
+{% endfor %}
+
+plugins.security.disabled: true
+bootstrap.memory_lock: true
+
+path.data: /usr/share/opensearch/data
+path.logs: /usr/share/opensearch/logs
+
+# Настройка exporter's prefix, если нужно
+prometheus.metric_name.prefix: "opensearch_"

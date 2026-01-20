@@ -1,0 +1,85 @@
+# ===================================================================
+# Метрики латентности: НЕ НУЖНО определять вручную!
+# Они генерируются автоматически экспортером при PG_EXPORTER_STATEMENTS=true
+# Автоматические метрики:
+# - pg_stat_statements_exec_time_bucket (для histogram_quantile)
+# - pg_stat_statements_calls
+# - pg_stat_statements_total
+# ===================================================================
+
+# -------------------------------------------------------------------
+# Репликация: статус и лаг
+# -------------------------------------------------------------------
+pg_replication_lag_seconds:
+  query: |
+    SELECT 
+      application_name, 
+      client_addr,
+      state,
+      sync_state,
+      EXTRACT(EPOCH FROM (now() - pg_last_xact_replay_timestamp())) as lag_seconds
+    FROM pg_stat_replication
+  metrics:
+    - application_name:
+        usage: "LABEL"
+    - client_addr:
+        usage: "LABEL"
+    - state:
+        usage: "LABEL"
+    - sync_state:
+        usage: "LABEL"
+    - lag_seconds:
+        usage: "GAUGE"
+
+pg_replication_lag_bytes:
+  query: |
+    SELECT 
+      application_name, 
+      pg_wal_lsn_diff(pg_current_wal_lsn(), replay_lsn) as lag_bytes
+    FROM pg_stat_replication
+  metrics:
+    - application_name:
+        usage: "LABEL"
+    - lag_bytes:
+        usage: "GAUGE"
+
+# -------------------------------------------------------------------
+# Режим реплики (1=реплика, 0=мастер)
+# -------------------------------------------------------------------
+pg_is_in_recovery:
+  query: "SELECT CASE WHEN pg_is_in_recovery() THEN 1 ELSE 0 END as is_recovery"
+  metrics:
+    - is_recovery:
+        usage: "GAUGE"
+
+# -------------------------------------------------------------------
+# Настройки PostgreSQL (для секции Settings)
+# -------------------------------------------------------------------
+pg_settings_metrics:
+  query: |
+    SELECT 
+      name, 
+      setting::float as value,
+      unit,
+      context
+    FROM pg_settings 
+    WHERE name IN (
+      'shared_buffers',
+      'effective_cache_size',
+      'maintenance_work_mem',
+      'work_mem',
+      'max_wal_size',
+      'random_page_cost',
+      'seq_page_cost',
+      'max_worker_processes',
+      'max_parallel_workers'
+    )
+  metrics:
+    - name:
+        usage: "LABEL"
+    - value:
+        usage: "GAUGE"
+    - unit:
+        usage: "LABEL"
+    - context:
+        usage: "LABEL"

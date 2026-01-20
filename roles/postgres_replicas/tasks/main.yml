@@ -1,0 +1,183 @@
+- name: Stop and remove old replica container (if any)
+  community.docker.docker_container:
+    name: "pg_replica_{{ inventory_hostname }}"
+    state: absent
+  ignore_errors: true
+
+- name: Remove old replica data (clean)
+  file:
+    path: "{{ pg_replica_data }}"
+    state: absent
+
+- name: Create replica data directory
+  file:
+    path: "{{ pg_replica_data }}"
+    state: directory
+    owner: 999
+    group: 999
+    mode: '0700'
+
+- name: Wait for master reachable (simple ping TCP)
+  wait_for:
+    host: "{{ groups['postgres_master'] | map('extract', hostvars, ['ansible_host']) | list | first }}"
+    port: 5432
+    timeout: 60
+
+- name: Create base backup via pg_basebackup
+  shell: |
+    docker run --rm \
+      -v {{ pg_replica_data }}:/var/lib/postgresql/data \
+      -e PGPASSWORD={{ replication_password }} \
+      postgres:15 \
+      pg_basebackup -h {{ hostvars[groups['postgres_master'] | list | first].ansible_host }} \
+                   -U {{ replication_user }} -D /var/lib/postgresql/data \
+                   -Fp -Xs -P -R --no-slot
+  register: basebackup
+  changed_when: basebackup.rc == 0
+  failed_when: basebackup.rc != 0
+  
+- name: Ensure primary_conninfo (set application_name for synchronous replica)
+  block:
+    - name: Build primary_conninfo string
+      set_fact:
+        primary_conninfo: "host={{ hostvars[groups['postgres_master'] | list | first].ansible_host }} port=5432 user={{ replication_user }} password={{ replication_password }} application_name={{ inventory_hostname }}"
+
+    - name: Append primary_conninfo to postgresql.auto.conf (create if missing)
+      lineinfile:
+        path: "{{ pg_replica_data }}/postgresql.auto.conf"
+        line: "primary_conninfo = '{{ primary_conninfo }}'"
+        create: yes
+        owner: 999
+        group: 999
+  when: basebackup is succeeded
+
+- name: Stop and remove old replica container (if any)
+  community.docker.docker_container:
+    name: "pg_replica_{{ inventory_hostname }}"
+    state: absent
+    force_kill: true
+  ignore_errors: true
+
+- name: Remove old replica data (clean)
+  file:
+    path: "{{ pg_replica_data }}"
+    state: absent
+
+- name: Create replica data directory with correct permissions
+  file:
+    path: "{{ pg_replica_data }}"
+    state: directory
+    owner: 999
+    group: 999
+    mode: '0700'
+
+- name: Wait for master reachable (TCP ping)
+  wait_for:
+    host: "{{ groups['postgres_master'] | map('extract', hostvars, ['ansible_host']) | list | first }}"
+    port: 5432
+    timeout: 60
+
+- name: Create base backup via pg_basebackup
+  shell: |
+    docker run --rm \
+      -v {{ pg_replica_data }}:/var/lib/postgresql/data \
+      -e PGPASSWORD={{ replication_password }} \
+      postgres:15 \
+      pg_basebackup -h {{ hostvars[groups['postgres_master'] | list | first].ansible_host }} \
+                   -U {{ replication_user }} -D /var/lib/postgresql/data \
+                   -Fp -Xs -P -R --no-slot
+  register: basebackup
+  changed_when: basebackup.rc == 0
+  failed_when: basebackup.rc != 0
+
+- name: (CRITICAL)Remove conflicting postgresql.conf from replica data
+  file:
+    path: "{{ pg_replica_data }}/postgresql.conf"
+    state: absent
+
+- name: Ensure correct permissions after backup
+  file:
+    path: "{{ pg_replica_data }}"
+    state: directory
+    owner: 999
+    group: 999
+    mode: '0700'
+    recurse: yes
+
+- name: Append primary_conninfo to postgresql.auto.conf
+  lineinfile:
+    path: "{{ pg_replica_data }}/postgresql.auto.conf"
+    line: "primary_conninfo = 'host={{ hostvars[groups['postgres_master'] | list | first].ansible_host }} port=5432 user={{ replication_user }} password={{ replication_password }} application_name={{ inventory_hostname }}'"
+    create: yes
+    owner: 999
+    group: 999
+    mode: "0600"
+
+- name: Create custom postgresql.conf for replica (minimal)
+  copy:
+    dest: "{{ pg_replica_data }}/replica.conf"
+    content: |
+      listen_addresses = '*'
+      port = 5432
+      hot_standby = on
+      ssl = off
+      shared_preload_libraries = 'pg_stat_statements'
+      pg_stat_statements.max = 10000
+      pg_stat_statements.track = all
+    owner: 999
+    group: 999
+    mode: "0600"
+
+- name: Start Postgres replica container with explicit config
+  community.docker.docker_container:
+    name: "pg_replica_{{ inventory_hostname }}"
+    image: postgres:15
+    volumes:
+      - "{{ pg_replica_data }}:/var/lib/postgresql/data"
+    ports:
+      - "5432:5432"
+    command: "postgres -c config_file=/var/lib/postgresql/data/replica.conf"
+    restart_policy: always
+    state: started
+
+- name: Подождать 5 секунд для стабилизации
+  pause:
+    seconds: 5
+
+- name: Проверить статус контейнера реплики
+  shell: "docker inspect pg_replica_{{ inventory_hostname }} --format='{{ '{{' }}.State.Status{{ '}}' }}'"
+  register: container_status
+  changed_when: false
+
+- name: Показать статус контейнера
+  debug:
+    msg: "Статус контейнера pg_replica_{{ inventory_hostname }}: {{ container_status.stdout }}"
+
+- name: Показать логи контейнера (если не running)
+  shell: "docker logs pg_replica_{{ inventory_hostname }} --tail 20"
+  register: container_logs
+  changed_when: false
+  when: container_status.stdout != "running"
+
+- name: Fail if container is not running
+  fail:
+    msg: "❌ Container is not running! Logs: {{ container_logs.stdout }}"
+  when: container_status.stdout != "running"
+
+- name: Wait for replica to be ready and in recovery mode
+  shell: |
+    for i in {1..30}; do
+      if docker exec pg_replica_{{ inventory_hostname }} pg_isready -U {{ postgres_user }} -d {{ postgres_db }}; then
+        RECOVERY=$(docker exec pg_replica_{{ inventory_hostname }} psql -U {{ postgres_user }} -d {{ postgres_db }} -tAc "SELECT pg_is_in_recovery();")
+        if [ "$(echo $RECOVERY | tr -d '[:space:]')" = "t" ]; then
+          echo "replica ready"
+          exit 0
+        fi
+      fi
+      sleep 2
+    done
+    echo "replica failed to start or not in recovery mode"
+    exit 1
+  register: replica_ready
+  changed_when: false
+  failed_when: replica_ready.rc != 0

@@ -1,0 +1,45 @@
+---
+#- name: ОСТАНОВИТЬ и УДАЛИТЬ все контейнеры мониторинга (если есть)
+#  community.docker.docker_compose_v2:
+#    project_src: /opt/monitoring
+#    state: absent
+#    remove_images: all
+#    remove_volumes: true
+#  ignore_errors: yes
+#
+#- name: Удалить именованный том grafana-data принудительно
+#  community.docker.docker_volume:
+#    name: grafana-data
+#    state: absent
+#  ignore_errors: yes
+#
+#- name: Очистить директории мониторинга
+#  file:
+#    path: /opt/monitoring
+#    state: absent
+#  ignore_errors: yes
+
+- name: Создать папки мониторинга заново
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: '0755'
+  loop:
+    - /opt/monitoring/prometheus
+    - /opt/monitoring/grafana
+    - /opt/monitoring/config
+
+- name: Скопировать docker-compose мониторинга
+  template:
+    src: docker-compose-monitor.yml.j2
+    dest: /opt/monitoring/docker-compose.yml
+
+- name: Скопировать prometheus.yml
+  template:
+    src: prometheus.yml.j2
+    dest: /opt/monitoring/prometheus/prometheus.yml
+
+- name: Запустить контейнеры мониторинга
+  community.docker.docker_compose_v2:
+    project_src: /opt/monitoring
+    state: present

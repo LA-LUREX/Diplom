@@ -1,0 +1,34 @@
+- name: Prepare and run Postgres master
+  hosts: postgres_master
+  become: true
+  roles:
+    - role: postgres_master
+
+- name: Prepare and run Postgres replicas
+  hosts: postgres_replicas
+  become: true
+  roles:
+    - role: postgres_replicas
+
+- name: Check replication status and print results
+  hosts: postgres_master
+  become: true
+  tasks:
+    - name: Show pg_stat_replication on master
+      shell: docker exec pg_master psql -U "{{ postgres_user }}" -d "{{ postgres_db }}" -c "SELECT pid, application_name, client_addr, state, sync_state, sent_lsn, write_lsn, flush_lsn, replay_lsn FROM pg_stat_replication;"
+      register: stats
+      changed_when: false
+
+    - debug: var=stats.stdout_lines
+
+- name: Check replicas (pg_is_in_recovery)
+  hosts: postgres_replicas
+  become: true
+  tasks:
+    - name: Check recovery state
+      shell: docker exec pg_replica_{{ inventory_hostname }} psql -U "{{ postgres_user }}" -d "{{ postgres_db }}" -tAc "SELECT pg_is_in_recovery();"
+      register: rec
+      changed_when: false
+
+    - debug:
+        msg: "{{ inventory_hostname }} pg_is_in_recovery = {{ rec.stdout | trim }}"

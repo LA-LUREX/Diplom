@@ -1,0 +1,10 @@
+# defaults for exporter_pg
+
+# Параметры подключения к PostgreSQL
+postgres_user: "dbadmin"
+postgres_password: "mnxa2003"
+postgres_db: "postgres"
+postgres_container_name: "pg_master"  # <-- ДОБАВЬТЕ ЭТОТ ПАРАМЕТР
+
+# Порт экспортера
+exporter_port: 9187

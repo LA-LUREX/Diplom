@@ -1,0 +1,41 @@
+---
+# tasks file for roles/docker
+- name: Install depedences
+  apt:
+    name:
+      - apt-transport-https
+      - ca-certificates
+      - curl
+      - software-properties-common
+
+    state: present
+    update_cache: yes
+
+- name: Add GPG key Docker
+  apt_key:
+    url: https://download.docker.com/linux/ubuntu/gpg
+    state: present
+
+- name: Add Docker repository
+  apt_repository:
+    repo: deb [arch=amd64] https://download.docker.com/linux/ubuntu focal stable
+    state: present
+
+- name: Install docker-ce and docker-compose-plugin
+  apt:
+    name:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+    state: latest
+
+- name: Docker starting ?
+  service:
+    name: docker.service
+    state: started
+    enabled: true
+
+- name: Install docker-compose
+  apt:
+    name: docker-compose
+    state: present

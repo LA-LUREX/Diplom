@@ -1,0 +1,34 @@
+---
+# defaults for postgres_master
+
+# paths on target host
+pg_master_data: /opt/pg_master_data
+pg_master_config: /opt/pg_master_config
+
+# postgres container settings
+postgres_image: "postgres:15"
+postgres_container_name: "pg_master"
+postgres_port: 5432
+
+# DB superuser created by image (we use this user to run setup)
+postgres_user: "dbadmin"
+postgres_password: "mnxa2003"
+postgres_db: "postgres"
+
+# replication user to create
+replication_user: "repluser"
+replication_password: "repl_pass"
+
+# postgres conf values
+wal_level: "replica"
+max_wal_senders: 5
+max_replication_slots: 5
+synchronous_replica_name: ""     # оставляем пустым на старте; включим позднее, если надо
+
+# file owner inside host (postgres image uses UID 999 usually)
+pg_container_uid: 999
+pg_container_gid: 999
+
+# retry settings for role creation
+create_role_retries: 6
+create_role_delay: 5

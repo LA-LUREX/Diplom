@@ -1,0 +1,41 @@
+---
+- name: Создать директории для конфигурации и данных
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: 1000
+    group: 1000
+    mode: '0700'
+  loop:
+    - /opt/opensearch/config
+    - /opt/opensearch/data
+
+- name: Install rights recursion
+  command: chown -R 1000:1000 /opt/opensearch/data
+  when: ansible_os_family == "Debian"
+
+- name: Скопировать шаблон opensearch.yml
+  template:
+    src: opensearch.yml.j2
+    dest: /opt/opensearch/config/opensearch.yml
+
+- name: Скопировать шаблон Dockerfile для custom image
+  template:
+    src: Dockerfile.j2
+    dest: /opt/opensearch/Dockerfile
+
+- name: Скопировать шаблон docker-compose для ноды
+  template:
+    src: docker-compose-node.yml.j2
+    dest: /opt/opensearch/docker-compose.yml
+
+- name: Сборка custom OpenSearch образа (с экспортёром)
+  community.docker.docker_image_build:
+    name: opensearch-exporter-node:latest
+    path: /opt/opensearch
+    dockerfile: Dockerfile
+
+- name: Запустить контейнер ноды OpenSearch
+  community.docker.docker_compose_v2:
+    project_src: /opt/opensearch
+    state: present

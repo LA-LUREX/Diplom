@@ -1,0 +1,6 @@
+---
+- name: restart postgres_exporter
+  community.docker.docker_container:
+    name: "postgres_exporter_{{ inventory_hostname }}"
+    state: started
+    restart: true
